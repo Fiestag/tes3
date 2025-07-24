@@ -4,7 +4,7 @@ use std::io::{self, Write};
 
 // external imports
 use bytemuck::{cast_slice, Pod};
-use encoding_rs::{Encoding, WINDOWS_1252};
+use encoding_rs::{Encoding, WINDOWS_1251, WINDOWS_1252};
 use hashbrown::HashMap;
 use memchr::memchr;
 use smart_default::SmartDefault;
@@ -83,7 +83,14 @@ impl Writer {
             return Ok(());
         }
 
-        if let (bytes, _, false) = self.encoding.encode(value) {
+        //Cyrillic detection
+        let enc = if value.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)) {
+            WINDOWS_1251
+        } else {
+            self.encoding
+        };
+
+        if let (bytes, _, false) = enc.encode(value) {
             // scan for null terminator
             if let Some(index) = memchr(0, &bytes) {
                 // save the string size
@@ -102,7 +109,10 @@ impl Writer {
             return Ok(());
         }
 
-        Err(io::Error::new(io::ErrorKind::InvalidData, format!("encode error: {value}")))
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("encode error: {value}"),
+        ))
     }
 
     pub fn save_string_without_null_terminator(&mut self, value: &str) -> io::Result<()> {
@@ -113,7 +123,13 @@ impl Writer {
     }
 
     pub fn encode<'a>(&self, str: &'a str) -> io::Result<Cow<'a, [u8]>> {
-        if let (bytes, _, false) = self.encoding.encode(str) {
+        let enc = if str.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)) {
+            WINDOWS_1251
+        } else {
+            self.encoding
+        };
+
+        if let (bytes, _, false) = enc.encode(str) {
             Ok(match memchr(0, &bytes) {
                 None => bytes,
                 Some(i) => match bytes {
@@ -125,7 +141,10 @@ impl Writer {
                 },
             })
         } else {
-            Err(io::Error::new(io::ErrorKind::InvalidData, format!("encode error: {str}")))
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("encode error: {str}"),
+            ))
         }
     }
 }
