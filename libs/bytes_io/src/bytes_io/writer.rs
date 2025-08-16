@@ -184,7 +184,7 @@ impl Writer {
     }
 
     /// Helper method to process encoded bytes (remove null terminators)
-    fn process_encoded_bytes(&self, bytes: Cow<[u8]>) -> Cow<[u8]> {
+    fn process_encoded_bytes<'a>(&self, bytes: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
         match memchr(0, &bytes) {
             None => bytes,
             Some(i) => match bytes {
@@ -238,12 +238,12 @@ impl Writer {
             // scan for null terminator
             if let Some(index) = memchr(0, &bytes) {
                 // save the string size
-                self.save_as::<_, u32>(index)?;
+                self.save_as::<usize, u32>(index)?;
                 // save the string data
                 self.save_bytes(&bytes[..index])?;
             } else {
                 // save the string size
-                self.save_as::<_, u32>(bytes.len() + 1)?;
+                self.save_as::<usize, u32>(bytes.len() + 1)?;
                 // save the string data
                 self.save_bytes(&bytes)?;
                 // save null terminator
@@ -271,11 +271,14 @@ impl Writer {
         // Try to encode with best fitting encoding
         match self.encode_with_best_fit(value) {
             Ok((bytes, encoding)) => {
-                // Update encoding if it changed
-                self.encoding = encoding;
+                // Update encoding if it changed (avoid borrow checker issue)
+                let encoding_changed = self.encoding != encoding;
+                if encoding_changed {
+                    self.encoding = encoding;
+                }
                 
                 // save the string size
-                self.save_as::<_, u32>(bytes.len() + 1)?;
+                self.save_as::<usize, u32>(bytes.len() + 1)?;
                 // save the string data
                 self.save_bytes(&bytes)?;
                 // save null terminator
@@ -296,7 +299,7 @@ impl Writer {
         self.save_bytes(cast_slice(matrix.as_slice()))
     }
 
-    pub fn encode<'a>(&self, str: &'a str) -> io::Result<Cow<'a, [u8]>> {
+    pub fn encode<'a>(&'a self, str: &'a str) -> io::Result<Cow<'a, [u8]>> {
         if let (bytes, _, false) = self.encoding.encode(str) {
             Ok(self.process_encoded_bytes(bytes))
         } else {
