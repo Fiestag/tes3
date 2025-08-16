@@ -104,7 +104,7 @@ impl Load for BodypartData {
 impl Save for BodypartData {
     fn save(&self, stream: &mut Writer) -> io::Result<()> {
         stream.save(&self.part)?;
-        stream.save_as::<u8>(self.vampire)?;
+        stream.save_as::<bool, u8>(self.vampire)?;
         stream.save(&self.flags)?;
         stream.save(&self.bodypart_type)?;
         Ok(())
