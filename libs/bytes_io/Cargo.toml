@@ -14,6 +14,7 @@ encoding_rs = "^0.8"
 glam = { version = "^0.29", features = ["bytemuck"], optional = true }
 hashbrown = { version = "^0.15", features = ["rayon"] }
 memchr = "^2.6"
+nalgebra = "^0.32"
 smart-default = "^0.7"
 
 [features]
