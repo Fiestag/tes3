@@ -123,7 +123,7 @@ impl Writer {
 
     /// Try to encode a string with the best fitting encoding between Windows-1252, Windows-1250, and Windows-1251
     /// Returns the encoded bytes and the encoding used
-    pub fn encode_with_best_fit(&self, text: &str) -> io::Result<(Cow<[u8]>, &'static Encoding)> {
+    pub fn encode_with_best_fit<'a>(&self, text: &'a str) -> io::Result<(Cow<'a, [u8]>, &'static Encoding)> {
         // Try current encoding first
         if let (bytes, _, false) = self.encoding.encode(text) {
             return Ok((self.process_encoded_bytes(bytes), self.encoding));
@@ -268,24 +268,87 @@ impl Writer {
             return Ok(());
         }
 
-        // Try to encode with best fitting encoding
-        match self.encode_with_best_fit(value) {
-            Ok((bytes, encoding)) => {
-                // Update encoding if it changed (avoid borrow checker issue)
-                let encoding_changed = self.encoding != encoding;
-                if encoding_changed {
-                    self.encoding = encoding;
-                }
-                
-                // save the string size
-                self.save_as::<usize, u32>(bytes.len() + 1)?;
-                // save the string data
-                self.save_bytes(&bytes)?;
-                // save null terminator
-                self.save(&0u8)?;
-                Ok(())
+        // Determine the best encoding first (without borrowing self)
+        let best_encoding = self.determine_best_encoding(value);
+        
+        // Encode with the determined encoding
+        let (bytes, encoding_used) = if let (bytes, _, false) = best_encoding.encode(value) {
+            (self.process_encoded_bytes_static(bytes), best_encoding)
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Cannot encode '{}' with any supported encoding", value)
+            ));
+        };
+
+        // Update encoding if it changed
+        if self.encoding != encoding_used {
+            self.encoding = encoding_used;
+        }
+        
+        // save the string size
+        self.save_as::<usize, u32>(bytes.len() + 1)?;
+        // save the string data
+        self.save_bytes(&bytes)?;
+        // save null terminator
+        self.save(&0u8)?;
+        Ok(())
+    }
+
+    /// Helper method to determine best encoding without borrowing self
+    fn determine_best_encoding(&self, text: &str) -> &'static Encoding {
+        // Try current encoding first
+        if let (_, _, false) = self.encoding.encode(text) {
+            return self.encoding;
+        }
+        
+        // Try Windows-1252 (most common)
+        if let (_, _, false) = WINDOWS_1252.encode(text) {
+            return WINDOWS_1252;
+        }
+        
+        // Check for Cyrillic characters
+        if text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)) {
+            if let (_, _, false) = WINDOWS_1251.encode(text) {
+                return WINDOWS_1251;
             }
-            Err(e) => Err(e),
+        }
+        
+        // Check for Central European characters
+        if text.chars().any(|c| {
+            matches!(c, 
+                'Ą' | 'ą' | 'Ć' | 'ć' | 'Ę' | 'ę' | 'Ł' | 'ł' | 'Ń' | 'ń' | 'Ó' | 'ó' | 
+                'Ś' | 'ś' | 'Ź' | 'ź' | 'Ż' | 'ż' | // Polish
+                'Č' | 'č' | 'Ď' | 'ď' | 'Ň' | 'ň' | 'Ř' | 'ř' | 'Š' | 'š' | 'Ť' | 'ť' | 
+                'Ů' | 'ů' | 'Ž' | 'ž' | // Czech
+                'Ľ' | 'ľ' | 'Ŕ' | 'ŕ' | // Slovak
+                'Ő' | 'ő' | 'Ű' | 'ű' | // Hungarian
+                'Đ' | 'đ' // Croatian/Serbian Latin
+            )
+        }) {
+            if let (_, _, false) = WINDOWS_1250.encode(text) {
+                return WINDOWS_1250;
+            }
+        }
+        
+        // Try remaining encodings
+        if let (_, _, false) = WINDOWS_1250.encode(text) {
+            return WINDOWS_1250;
+        }
+        
+        if let (_, _, false) = WINDOWS_1251.encode(text) {
+            return WINDOWS_1251;
+        }
+        
+        // Default fallback
+        WINDOWS_1252
+    }
+
+    /// Helper method to process encoded bytes without lifetime issues
+    fn process_encoded_bytes_static(&self, bytes: Cow<[u8]>) -> Vec<u8> {
+        match memchr(0, &bytes) {
+            None => bytes.into_owned(),
+            Some(i) => bytes[..i].to_vec(),
         }
     }
 
