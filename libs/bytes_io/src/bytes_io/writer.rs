@@ -258,6 +258,29 @@ impl Writer {
         ))
     }
 
+    pub fn save_string_without_null_terminator(&mut self, value: &str) -> io::Result<()> {
+        if value.is_empty() {
+            return Ok(());
+        }
+
+        if let (bytes, _, false) = self.encoding.encode(value) {
+            // scan for null terminator and exclude it
+            if let Some(index) = memchr(0, &bytes) {
+                // save only the string data without null terminator
+                self.save_bytes(&bytes[..index])?;
+            } else {
+                // save the string data without null terminator
+                self.save_bytes(&bytes)?;
+            }
+            return Ok(());
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData, 
+            format!("encode error with {}: {}", self.encoding.name(), value)
+        ))
+    }
+
     /// Save string with automatic encoding detection
     pub fn save_string_auto(&mut self, value: &str) -> io::Result<()> {
         if value.is_empty() {
@@ -362,9 +385,10 @@ impl Writer {
         self.save_bytes(cast_slice(matrix.as_slice()))
     }
 
-    pub fn encode<'a>(&'a self, str: &'a str) -> io::Result<Cow<'a, [u8]>> {
+    pub fn encode<'a>(&self, str: &'a str) -> io::Result<Vec<u8>> {
         if let (bytes, _, false) = self.encoding.encode(str) {
-            Ok(self.process_encoded_bytes(bytes))
+            let processed = self.process_encoded_bytes_static(bytes);
+            Ok(processed)
         } else {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData, 
