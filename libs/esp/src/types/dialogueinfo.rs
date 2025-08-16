@@ -327,7 +327,7 @@ impl Save for Filter {
             return Writer::error("DialogueInfo: Invalid filter index");
         };
         let id = stream.encode(&self.id)?;
-        stream.save_as::<u32>(id.len() + 5)?;
+        stream.save_as::<usize, u32>(id.len() + 5)?;
         stream.save(&index)?;
         stream.save(&self.filter_type)?;
         stream.save(&self.function)?;
